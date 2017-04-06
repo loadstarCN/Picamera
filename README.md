@@ -6,6 +6,8 @@ Picamera是使用Python开发的图传监控系统，基于树莓派和普通web
 
 之后的版本将增加图像跟踪和识别功能。
 
+[系统说明](http://oliverobot.com/github_file/picamera01.png])
+
 ### Dependencies
 
 python 2.x/3.x
