@@ -14,4 +14,4 @@ opencv3
 
 ### Support or Contact
 
-Having trouble with Pages? Check out our [documentation](https://loadstarcn.github.io/Picamera/) or [contact support](richard@olive.fm) and we’ll help you sort it out.
+Having trouble with Pages? Check out our [documentation](https://loadstarcn.github.io/Picamera/) or [contact support](mailto:richard@olive.fm) and we’ll help you sort it out.
