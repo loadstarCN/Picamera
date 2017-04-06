@@ -1,37 +1,17 @@
-## Welcome to GitHub Pages
+## 关于Picamera
 
-You can use the [editor on GitHub](https://github.com/loadstarCN/Picamera/edit/master/README.md) to maintain and preview the content for your website in Markdown files.
+Picamera是使用Python开发的图传监控系统，基于树莓派和普通web摄像头硬件。
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
+系统包括运行于树莓派上的图像采集socket客户端;运行于linux系统下的socket服务器;linux系统下的http服务器。
 
-### Markdown
+之后的版本将增加图像跟踪和识别功能。
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
+### Dependencies
 
-```markdown
-Syntax highlighted code block
+python 2.x/3.x
 
-# Header 1
-## Header 2
-### Header 3
-
-- Bulleted
-- List
-
-1. Numbered
-2. List
-
-**Bold** and _Italic_ and `Code` text
-
-[Link](url) and ![Image](src)
-```
-
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
-
-### Jekyll Themes
-
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/loadstarCN/Picamera/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
+opencv3 
 
 ### Support or Contact
 
-Having trouble with Pages? Check out our [documentation](https://help.github.com/categories/github-pages-basics/) or [contact support](https://github.com/contact) and we’ll help you sort it out.
+Having trouble with Pages? Check out our [documentation](https://loadstarcn.github.io/Picamera/) or [contact support](richard@olive.fm) and we’ll help you sort it out.
