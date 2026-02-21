@@ -1,8 +1,8 @@
 """Picamera TCP/HTTP 图传服务器
 
 同时处理两种请求：
-- 二进制协议：接收客户端上传的 JPEG 图片（16 字节头部 + 数据流）
-- HTTP GET：返回内存中缓存的最新图片
+- 二进制协议：接收客户端上传的 JPEG 图片（头部 + 数据流），经 OpenCV 检测后存储
+- HTTP GET：返回标注图片、原始图片或检测结果 JSON
 """
 
 import socketserver
@@ -13,6 +13,8 @@ import logging
 import argparse
 import threading
 from typing import Dict, Optional
+
+from detector import Detector
 
 # ── 常量 ──────────────────────────────────────────────
 
@@ -28,22 +30,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── 线程安全的设备状态管理 ─────────────────────────────
+# ── 检测器 ────────────────────────────────────────────
+
+detector = Detector(enable_motion=True, enable_face=True)
+
+# ── 线程安全的设备状态管理（双通道）──────────────────────
 
 
 class DeviceState:
-    """管理设备图片数据，所有操作均线程安全。"""
+    """管理设备图片数据（原始 + 标注 + JSON），所有操作均线程安全。"""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._pic_times: Dict[int, float] = {}
         self._writing: Dict[int, bool] = {}
-        self._pic_data: Optional[bytes] = None
+        self._raw_data: Optional[bytes] = None
+        self._annotated_data: Optional[bytes] = None
+        self._detection_json: Optional[str] = None
 
-    def get_pic_data(self) -> Optional[bytes]:
-        """获取最新的图片数据。"""
+    def get_raw_data(self) -> Optional[bytes]:
+        """获取原始图片数据。"""
         with self._lock:
-            return self._pic_data
+            return self._raw_data
+
+    def get_annotated_data(self) -> Optional[bytes]:
+        """获取标注后的图片数据。"""
+        with self._lock:
+            return self._annotated_data
+
+    def get_detection_json(self) -> Optional[str]:
+        """获取检测结果 JSON。"""
+        with self._lock:
+            return self._detection_json
 
     def try_begin_write(self, device_id: int, pic_time: float) -> bool:
         """尝试开始写入，返回 True 表示允许写入。
@@ -60,11 +78,16 @@ class DeviceState:
             self._writing[device_id] = True
             return True
 
-    def finish_write(self, device_id: int, data: Optional[bytes]) -> None:
-        """完成写入，更新图片缓存并释放写锁。"""
+    def finish_write(self, device_id: int,
+                     raw_data: Optional[bytes],
+                     annotated_data: Optional[bytes] = None,
+                     detection_json: Optional[str] = None) -> None:
+        """完成写入，更新双通道缓存并释放写锁。"""
         with self._lock:
-            if data is not None:
-                self._pic_data = data
+            if raw_data is not None:
+                self._raw_data = raw_data
+                self._annotated_data = annotated_data or raw_data
+                self._detection_json = detection_json or "{}"
             self._writing[device_id] = False
 
 
@@ -74,7 +97,7 @@ state = DeviceState()
 
 
 class ImageRequestHandler(StreamRequestHandler):
-    """处理图片上传（二进制协议）和图片请求（HTTP GET）。"""
+    """处理图片上传（二进制协议）和 HTTP 请求（多端点）。"""
 
     def handle(self) -> None:
         client = f"{self.client_address[0]}:{self.client_address[1]}"
@@ -89,36 +112,73 @@ class ImageRequestHandler(StreamRequestHandler):
         else:
             self._handle_upload(fhead)
 
-    def _handle_http(self, initial_data: bytes) -> None:
-        """处理 HTTP GET 请求，返回最新图片。"""
-        # 读取剩余的 HTTP 请求头
-        self.request.recv(4096)
-        logger.info("收到 HTTP 图片请求")
+    # ── HTTP 处理 ─────────────────────────────────────
 
-        pic_data = state.get_pic_data()
-        if pic_data:
+    def _handle_http(self, initial_data: bytes) -> None:
+        """处理 HTTP GET 请求，根据路径分发。"""
+        remaining = self.request.recv(4096)
+        full_request = initial_data + remaining
+
+        request_line = full_request.split(b'\r\n')[0].decode('utf-8', errors='replace')
+        parts = request_line.split()
+        path = parts[1] if len(parts) >= 2 else '/'
+        logger.info(f"HTTP 请求: {request_line}")
+
+        if path.startswith('/raw'):
+            self._serve_image(state.get_raw_data())
+        elif path.startswith('/detection'):
+            self._serve_json(state.get_detection_json())
+        else:
+            # 默认: /latest.jpg 或其他路径 → 标注图片
+            self._serve_image(state.get_annotated_data())
+
+    def _serve_image(self, data: Optional[bytes]) -> None:
+        """返回 JPEG 图片的 HTTP 响应。"""
+        if data:
             header = (
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: image/jpeg\r\n"
-                b"Content-Length: " + str(len(pic_data)).encode() + b"\r\n"
+                b"Content-Length: " + str(len(data)).encode() + b"\r\n"
                 b"Connection: close\r\n"
                 b"Access-Control-Allow-Origin: *\r\n"
                 b"\r\n"
             )
-            self.request.sendall(header + pic_data)
+            self.request.sendall(header + data)
         else:
-            body = b"No image available"
+            self._serve_404()
+
+    def _serve_json(self, json_str: Optional[str]) -> None:
+        """返回 JSON 的 HTTP 响应。"""
+        if json_str:
+            body = json_str.encode('utf-8')
             header = (
-                b"HTTP/1.1 404 Not Found\r\n"
-                b"Content-Type: text/plain; charset=utf-8\r\n"
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: application/json; charset=utf-8\r\n"
                 b"Content-Length: " + str(len(body)).encode() + b"\r\n"
                 b"Connection: close\r\n"
+                b"Access-Control-Allow-Origin: *\r\n"
                 b"\r\n"
             )
             self.request.sendall(header + body)
+        else:
+            self._serve_404()
+
+    def _serve_404(self) -> None:
+        """返回 404 响应。"""
+        body = b"No data available"
+        header = (
+            b"HTTP/1.1 404 Not Found\r\n"
+            b"Content-Type: text/plain; charset=utf-8\r\n"
+            b"Content-Length: " + str(len(body)).encode() + b"\r\n"
+            b"Connection: close\r\n"
+            b"\r\n"
+        )
+        self.request.sendall(header + body)
+
+    # ── 图片上传处理 ──────────────────────────────────
 
     def _handle_upload(self, fhead: bytes) -> None:
-        """处理二进制协议图片上传。"""
+        """处理二进制协议图片上传，接收后进行 OpenCV 检测。"""
         if len(fhead) < HEADER_SIZE:
             logger.warning(f"头部数据不完整: 收到 {len(fhead)} 字节，需要 {HEADER_SIZE} 字节")
             return
@@ -146,8 +206,12 @@ class ImageRequestHandler(StreamRequestHandler):
                     received += len(data)
 
             pic_bytes = b"".join(chunks)
-            state.finish_write(device_id, pic_bytes)
             logger.info(f"文件接收完毕: {received} 字节 -> {filename}")
+
+            # OpenCV 检测处理
+            raw_jpeg, annotated_jpeg, detection_json = detector.process(pic_bytes)
+            state.finish_write(device_id, raw_jpeg, annotated_jpeg, detection_json)
+            logger.info("检测处理完成")
 
         except Exception:
             logger.exception(f"接收设备 {device_id} 的文件时出错")

@@ -4,39 +4,241 @@
     <meta charset="UTF-8">
     <title>Picamera 监控</title>
     <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, "Microsoft YaHei", sans-serif;
-            text-align: center;
-            margin: 2em;
-            background: #f5f5f5;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
         }
-        h1 { color: #333; }
-        .status { color: #888; font-size: 0.9em; margin-bottom: 1em; }
-        img {
-            max-width: 100%;
-            max-height: 70vh;
-            border: 1px solid #ddd;
+        header {
+            text-align: center;
+            padding: 1em;
+            background: #16213e;
+            border-bottom: 1px solid #0f3460;
+        }
+        header h1 { font-size: 1.4em; font-weight: 500; }
+        .status { color: #888; font-size: 0.85em; margin-top: 0.3em; }
+
+        .main {
+            display: flex;
+            max-width: 1200px;
+            margin: 1em auto;
+            gap: 1em;
+            padding: 0 1em;
+        }
+
+        /* 左侧：标注图片 */
+        .video-panel {
+            flex: 2;
+            background: #16213e;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .video-panel .label {
+            padding: 0.5em 1em;
+            font-size: 0.85em;
+            color: #aaa;
+            border-bottom: 1px solid #0f3460;
+        }
+        .video-panel img {
+            width: 100%;
+            display: block;
+            background: #000;
+            min-height: 200px;
+        }
+
+        /* 右侧：检测信息 */
+        .info-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1em;
+        }
+
+        .card {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 1em;
+        }
+        .card h3 {
+            font-size: 0.9em;
+            color: #aaa;
+            margin-bottom: 0.6em;
+            font-weight: 500;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5em;
+        }
+        .stat {
+            background: #1a1a2e;
+            border-radius: 6px;
+            padding: 0.6em;
+            text-align: center;
+        }
+        .stat .value {
+            font-size: 1.6em;
+            font-weight: 600;
+        }
+        .stat .label {
+            font-size: 0.75em;
+            color: #888;
+            margin-top: 0.2em;
+        }
+        .stat.motion .value { color: #4ade80; }
+        .stat.face .value { color: #60a5fa; }
+        .stat.processing .value { color: #fbbf24; font-size: 1.2em; }
+        .stat.total .value { color: #c084fc; }
+
+        .detection-list {
+            max-height: 240px;
+            overflow-y: auto;
+            font-size: 0.85em;
+        }
+        .detection-item {
+            padding: 0.4em 0;
+            border-bottom: 1px solid #1a1a2e;
+            display: flex;
+            justify-content: space-between;
+        }
+        .detection-item .cat { font-weight: 500; }
+        .cat-motion { color: #4ade80; }
+        .cat-face { color: #60a5fa; }
+        .cat-object { color: #fb923c; }
+        .cat-tracking { color: #22d3ee; }
+
+        /* 底部：原始图片 */
+        .raw-panel {
+            max-width: 1200px;
+            margin: 0 auto 1em;
+            padding: 0 1em;
+        }
+        .raw-panel .card {
+            display: flex;
+            align-items: center;
+            gap: 1em;
+        }
+        .raw-panel img {
+            width: 200px;
             border-radius: 4px;
-            background: #fff;
+            background: #000;
+            cursor: pointer;
+        }
+        .raw-panel .hint {
+            color: #666;
+            font-size: 0.85em;
         }
     </style>
 </head>
 <body>
-    <h1>Picamera 监控画面</h1>
-    <p class="status">每 2 秒自动刷新 | <span id="time">--</span></p>
-    <img id="cam" src="http://127.0.0.1:10086/latest.jpg" alt="最新图片">
+    <header>
+        <h1>Picamera 检测监控</h1>
+        <p class="status">每 2 秒自动刷新 | <span id="time">--</span></p>
+    </header>
+
+    <div class="main">
+        <div class="video-panel">
+            <div class="label">检测画面 (latest.jpg)</div>
+            <img id="cam" src="http://127.0.0.1:10086/latest.jpg" alt="标注图片">
+        </div>
+
+        <div class="info-panel">
+            <div class="card">
+                <h3>检测统计</h3>
+                <div class="stat-grid">
+                    <div class="stat motion">
+                        <div class="value" id="motionCount">0</div>
+                        <div class="label">运动目标</div>
+                    </div>
+                    <div class="stat face">
+                        <div class="value" id="faceCount">0</div>
+                        <div class="label">人脸</div>
+                    </div>
+                    <div class="stat total">
+                        <div class="value" id="totalCount">0</div>
+                        <div class="label">总检测数</div>
+                    </div>
+                    <div class="stat processing">
+                        <div class="value" id="processingTime">--</div>
+                        <div class="label">处理耗时 (ms)</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>检测详情</h3>
+                <div class="detection-list" id="detectionList">
+                    <p style="color:#666">等待数据...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="raw-panel">
+        <div class="card">
+            <img id="raw" src="http://127.0.0.1:10086/raw.jpg" alt="原始图片"
+                 title="点击查看大图" onclick="window.open(this.src)">
+            <div>
+                <h3>原始画面 (raw.jpg)</h3>
+                <p class="hint">未经标注的原始图片，点击可查看大图</p>
+            </div>
+        </div>
+    </div>
 
     <script>
-        var img = document.getElementById('cam');
+        var baseUrl = 'http://127.0.0.1:10086';
+        var imgCam = document.getElementById('cam');
+        var imgRaw = document.getElementById('raw');
         var timeEl = document.getElementById('time');
-        var baseUrl = 'http://127.0.0.1:10086/latest.jpg';
+
+        function updatePanel(data) {
+            document.getElementById('totalCount').textContent = data.count || 0;
+            document.getElementById('processingTime').textContent =
+                data.processing_ms !== undefined ? data.processing_ms.toFixed(1) : '--';
+
+            var summary = data.summary || {};
+            document.getElementById('motionCount').textContent = summary.motion || 0;
+            document.getElementById('faceCount').textContent = summary.face || 0;
+
+            var listEl = document.getElementById('detectionList');
+            if (!data.detections || data.detections.length === 0) {
+                listEl.innerHTML = '<p style="color:#666">无检测结果</p>';
+                return;
+            }
+
+            var html = '';
+            data.detections.forEach(function(d) {
+                var cls = 'cat-' + d.category;
+                var conf = d.confidence < 1 ? ' (' + (d.confidence * 100).toFixed(0) + '%)' : '';
+                var bbox = d.bbox.x + ',' + d.bbox.y + ' ' + d.bbox.w + 'x' + d.bbox.h;
+                html += '<div class="detection-item">' +
+                    '<span class="cat ' + cls + '">' + d.label + conf + '</span>' +
+                    '<span style="color:#666">' + bbox + '</span>' +
+                    '</div>';
+            });
+            listEl.innerHTML = html;
+        }
 
         function refresh() {
-            img.src = baseUrl + '?t=' + Date.now();
+            var ts = Date.now();
+            imgCam.src = baseUrl + '/latest.jpg?t=' + ts;
+            imgRaw.src = baseUrl + '/raw.jpg?t=' + ts;
             timeEl.textContent = new Date().toLocaleTimeString();
+
+            fetch(baseUrl + '/detection.json?t=' + ts)
+                .then(function(r) { return r.json(); })
+                .then(updatePanel)
+                .catch(function() {
+                    document.getElementById('detectionList').innerHTML =
+                        '<p style="color:#666">无法获取检测数据</p>';
+                });
         }
 
         setInterval(refresh, 2000);
+        refresh();
     </script>
 </body>
 </html>
