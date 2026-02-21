@@ -1,10 +1,42 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-	<title>Test</title>
+    <meta charset="UTF-8">
+    <title>Picamera 监控</title>
+    <style>
+        body {
+            font-family: -apple-system, "Microsoft YaHei", sans-serif;
+            text-align: center;
+            margin: 2em;
+            background: #f5f5f5;
+        }
+        h1 { color: #333; }
+        .status { color: #888; font-size: 0.9em; margin-bottom: 1em; }
+        img {
+            max-width: 100%;
+            max-height: 70vh;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fff;
+        }
+    </style>
 </head>
 <body>
-<p>测试页面</p>
-<img src="http://127.0.0.1:10086/1.jpg?11111">
+    <h1>Picamera 监控画面</h1>
+    <p class="status">每 2 秒自动刷新 | <span id="time">--</span></p>
+    <img id="cam" src="http://127.0.0.1:10086/latest.jpg" alt="最新图片">
+
+    <script>
+        var img = document.getElementById('cam');
+        var timeEl = document.getElementById('time');
+        var baseUrl = 'http://127.0.0.1:10086/latest.jpg';
+
+        function refresh() {
+            img.src = baseUrl + '?t=' + Date.now();
+            timeEl.textContent = new Date().toLocaleTimeString();
+        }
+
+        setInterval(refresh, 2000);
+    </script>
 </body>
 </html>

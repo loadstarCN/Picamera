@@ -1,41 +1,60 @@
-#-*-coding:utf-8-*-
+"""Picamera Socket 客户端
 
-import socket 
+将本地 JPEG 图片通过二进制协议发送到 Picamera 服务器。
+协议格式：16 字节头部 (设备ID + 时间戳 + 文件大小) + JPEG 数据流
+"""
+
+import socket
 import os
-import sys
 import struct
 import time
+import logging
+import argparse
 
-# data of socket and file datapath 
-ADDR = ('127.0.0.1',10086)
 BUFSIZE = 1024
-filename = 'upload/bbb.jpg'
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
-# 客户端发送文件
-def Send_File_Client():
-    sendSock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    sendSock.connect(ADDR)
+def send_file(host: str, port: int, device_id: int, filepath: str) -> None:
+    """将指定图片文件发送到服务器。"""
+    filesize = os.path.getsize(filepath)
+    header = struct.pack('IdI', device_id, time.time(), filesize)
 
-    fhead=struct.pack('IdI',1,float(time.time()),os.stat(filename).st_size)
-    print(fhead)
-    sendSock.send(fhead)
-    fp = open(filename,'rb')
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.connect((host, port))
+        logger.info(f"已连接到 {host}:{port}")
 
-    while 1:
-        filedata = fp.read(BUFSIZE)
-        if not filedata: 
-            break
-        sendSock.send(filedata)
-    
-    '''
-    print u"文件传送完毕，正在断开连接...\n"
+        sock.sendall(header)
 
-    fp.close()
-    sendSock.close()
-    print u"连接已关闭...\n" 
+        with open(filepath, 'rb') as fp:
+            while True:
+                chunk = fp.read(BUFSIZE)
+                if not chunk:
+                    break
+                sock.sendall(chunk)
 
-    '''
+    logger.info(f"文件发送完毕: {filepath} ({filesize} 字节)")
 
-if __name__ == '__main__':
-    Send_File_Client()
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Picamera 图片发送客户端")
+    parser.add_argument("file", help="要发送的 JPEG 文件路径")
+    parser.add_argument("--host", default="127.0.0.1", help="服务器地址（默认: 127.0.0.1）")
+    parser.add_argument("--port", type=int, default=10086, help="服务器端口（默认: 10086）")
+    parser.add_argument("--device-id", type=int, default=1, help="设备 ID（默认: 1）")
+    args = parser.parse_args()
+
+    if not os.path.isfile(args.file):
+        logger.error(f"文件不存在: {args.file}")
+        return
+
+    send_file(args.host, args.port, args.device_id, args.file)
+
+
+if __name__ == "__main__":
+    main()
